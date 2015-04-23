@@ -6,7 +6,11 @@ import java.util.Map;
 
 import com.lexicalscope.fluentreflection.FluentClass;
 import com.lexicalscope.fluentreflection.FluentMethod;
+import com.lexicalscope.fluentreflection.InvocationTargetRuntimeException;
 import com.lexicalscope.jewel.cli.specification.OptionsSpecification;
+import com.lexicalscope.jewel.cli.specification.ParsedOptionSpecification;
+import java.util.ArrayList;
+import java.util.List;
 
 /*
  * Copyright 2011 Tim Wood
@@ -39,30 +43,41 @@ class InstanceArgumentPresentingStrategy<O> implements ArgumentPresentingStrateg
     }
 
     @Override public O presentArguments(final Map<String, Object> argumentMap) {
+        List<ValidationFailure> errors = new ArrayList<ValidationFailure>();
         for (final FluentMethod reflectedMethod : klass.methods(annotatedWith(Option.class))) {
             final boolean isBoolean = specification.getSpecification(reflectedMethod).isBoolean();
-            setValueOnOptions(argumentMap, reflectedMethod, isBoolean);
+            setValueOnOptions(argumentMap, reflectedMethod, isBoolean, errors);
         }
         for (final FluentMethod reflectedMethod : klass.methods(annotatedWith(Unparsed.class))) {
-            setValueOnOptions(argumentMap, reflectedMethod, false);
+            setValueOnOptions(argumentMap, reflectedMethod, false, errors);
         }
+        if (!errors.isEmpty())
+            throw new ArgumentValidationException(errors);
         return options;
     }
 
     private void setValueOnOptions(
             final Map<String, Object> argumentMap,
             final FluentMethod reflectedMethod,
-            final boolean isBoolean) {
-        if (argumentMap.containsKey(reflectedMethod.property()))
-        {
-            if (isBoolean)
+            final boolean isBoolean,
+            final List<ValidationFailure> errors) {
+        try {
+            if (argumentMap.containsKey(reflectedMethod.property()))
             {
-                reflectedMethod.call(options, argumentMap.containsKey(reflectedMethod.property()));
+                if (isBoolean)
+                {
+                    reflectedMethod.call(options, argumentMap.containsKey(reflectedMethod.property()));
+                }
+                else if (argumentMap.get(reflectedMethod.property()) != null)
+                {
+                    reflectedMethod.call(options, argumentMap.get(reflectedMethod.property()));
+                }
             }
-            else if (argumentMap.get(reflectedMethod.property()) != null)
-            {
-                reflectedMethod.call(options, argumentMap.get(reflectedMethod.property()));
-            }
+        } catch (InvocationTargetRuntimeException ex) {
+            String message = ex.getExceptionThrownByInvocationTarget().getMessage();
+            ParsedOptionSpecification optionSpecification = specification.getSpecification(reflectedMethod);
+            ValidationFailure validationFailure = new ValidationFailureUnableToConstructType(optionSpecification, message);
+            errors.add(validationFailure);
         }
     }
 }
